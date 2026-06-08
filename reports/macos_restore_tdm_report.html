@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>macOS Full System Restore via Target Disk Mode — Technical Report — IT Solutions USA</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9fa; color: #212529; line-height: 1.7; }
+  .cover { background: linear-gradient(135deg, #0d1117 0%, #1a2332 100%); color: white; padding: 80px 60px; min-height: 280px; }
+  .cover h1 { font-size: 2.2em; font-weight: 700; color: #58a6ff; margin-bottom: 12px; }
+  .cover h2 { font-size: 1.2em; font-weight: 400; color: #8b949e; margin-bottom: 40px; }
+  .cover-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.9em; color: #c9d1d9; }
+  .cover-meta span { color: #58a6ff; font-weight: 600; }
+  .container { max-width: 960px; margin: 0 auto; padding: 40px 40px; }
+  h2 { font-size: 1.4em; color: #0d6efd; border-left: 4px solid #0d6efd; padding-left: 14px; margin: 40px 0 16px 0; }
+  h3 { font-size: 1.1em; color: #495057; margin: 24px 0 10px 0; border-bottom: 1px solid #dee2e6; padding-bottom: 6px; }
+  p { margin-bottom: 12px; color: #343a40; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9em; }
+  th { background: #0d1117; color: #58a6ff; padding: 10px 14px; text-align: left; }
+  td { padding: 9px 14px; border-bottom: 1px solid #dee2e6; }
+  tr:nth-child(even) td { background: #f8f9fa; }
+  .env-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 16px 0; }
+  .env-box { background: #0d1117; border-radius: 8px; padding: 20px; color: #c9d1d9; }
+  .env-box h4 { color: #58a6ff; font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .env-box .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #21262d; font-size: 0.88em; }
+  .env-box .label { color: #8b949e; }
+  .env-box .value { color: #e6edf3; font-weight: 500; }
+  .timeline { margin: 16px 0; }
+  .timeline-phase { background: white; border: 1px solid #dee2e6; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .timeline-phase-header { background: #0d1117; color: #58a6ff; padding: 10px 18px; font-weight: 600; font-size: 0.9em; display: flex; justify-content: space-between; }
+  .timeline-phase-header .time { color: #8b949e; font-weight: 400; }
+  .timeline-phase-body { padding: 14px 18px; font-size: 0.9em; }
+  .timeline-phase-body code { background: #0d1117; color: #58a6ff; padding: 2px 8px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.88em; }
+  .timeline-phase-body pre { background: #0d1117; color: #e6edf3; padding: 12px 16px; border-radius: 6px; font-size: 0.82em; margin: 8px 0; overflow-x: auto; font-family: 'Courier New', monospace; line-height: 1.5; }
+  .finding { border-left: 4px solid #0d6efd; background: #e8f0fe; padding: 14px 18px; margin: 12px 0; border-radius: 0 6px 6px 0; }
+  .finding strong { color: #0d47a1; display: block; margin-bottom: 6px; }
+  .finding p { margin: 0; font-size: 0.92em; }
+  .disk-diagram { background: #0d1117; border-radius: 8px; padding: 24px; margin: 16px 0; font-family: 'Courier New', monospace; color: #e6edf3; font-size: 0.88em; }
+  .disk-diagram .disk-bar { display: flex; height: 44px; border-radius: 4px; overflow: hidden; margin-bottom: 16px; }
+  .seg-efi { background: #495057; flex: 0.06; }
+  .seg-installer { background: #0d6efd; flex: 4.4; }
+  .seg-macos { background: #198754; flex: 95.5; }
+  .disk-legend { display: flex; gap: 20px; font-size: 0.82em; }
+  .disk-legend span { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .seal-steps { counter-reset: step; list-style: none; }
+  .seal-steps li { counter-increment: step; padding: 8px 0 8px 44px; position: relative; border-bottom: 1px solid #dee2e6; font-size: 0.92em; }
+  .seal-steps li::before { content: counter(step); position: absolute; left: 0; top: 6px; background: #0d6efd; color: white; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85em; }
+  .alert { padding: 14px 18px; border-radius: 6px; margin: 12px 0; font-size: 0.92em; }
+  .alert-warning { background: #fff3cd; border-left: 4px solid #ffc107; }
+  .alert-info { background: #cff4fc; border-left: 4px solid #0dcaf0; }
+  .alert-success { background: #d1e7dd; border-left: 4px solid #198754; }
+  code { background: #e9ecef; color: #d63384; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.88em; }
+  .footer { background: #0d1117; color: #8b949e; text-align: center; padding: 30px; font-size: 0.85em; margin-top: 60px; }
+  .footer a { color: #58a6ff; text-decoration: none; }
+  @media print {
+    body { background: white; }
+    .cover { background: #0d1117 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .env-box { background: #0d1117 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .disk-diagram { background: #0d1117 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <h1>macOS Full System Restore<br>via Target Disk Mode</h1>
+  <h2>Technical Operation Report — Apple Silicon Host → Intel Mac Target</h2>
+  <div class="cover-meta">
+    <div><span>Organization:</span> IT Solutions USA</div>
+    <div><span>Date:</span> May 29, 2026</div>
+    <div><span>Prepared by:</span> Ioannis Alexander Konstas, Founder &amp; Managing Principal — IT Solutions USA</div>
+    <div><span>AI Assistance:</span> Developed strictly with AI (Claude Code — Anthropic)</div>
+    <div><span>Repository:</span> github.com/IT-Solutions-USA/mac-admin</div>
+    <div><span>Script:</span> macos_restore_tdm.sh</div>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- EXECUTIVE SUMMARY -->
+<h2>Executive Summary</h2>
+<p>
+This report documents a full macOS restoration performed on a <strong>MacBook Pro (Late 2019, Intel, T2 Security Chip)</strong>
+using a <strong>Mac mini (M4 Pro, Apple Silicon)</strong> as the host workstation. The operation was executed entirely via
+command-line interface using <strong>Claude AI's Terminal service</strong>, leveraging direct hardware access through Apple's
+Thunderbolt Target Disk Mode protocol.
+</p>
+<p>
+The target MacBook Pro had suffered a broken <strong>Signed System Volume (SSV) seal</strong> — a cryptographic integrity
+failure introduced in macOS Big Sur that prevented the laptop from booting and blocked all standard recovery methods.
+Cmd+R Recovery, Internet Recovery, and <code>startosinstall --volume</code> were all non-functional.
+</p>
+<div class="alert alert-success">
+<strong>Outcome:</strong> The operation was completed successfully. A bootable macOS Sequoia 15.7.7 installer was written
+to the MacBook Pro's internal SSD. The machine booted from its own disk into the macOS installer and completed a fresh
+installation restoring a valid SSV seal.
+</div>
+
+<!-- ENVIRONMENT -->
+<h2>1. Environment</h2>
+<div class="env-grid">
+  <div class="env-box">
+    <h4>🖥 Host Machine (Operator Workstation)</h4>
+    <div class="row"><span class="label">Device</span><span class="value">Apple Mac mini</span></div>
+    <div class="row"><span class="label">Model ID</span><span class="value">Mac16,11</span></div>
+    <div class="row"><span class="label">Chip</span><span class="value">Apple M4 Pro (ARM64)</span></div>
+    <div class="row"><span class="label">Memory</span><span class="value">24 GB</span></div>
+    <div class="row"><span class="label">OS</span><span class="value">macOS Tahoe 26.x</span></div>
+    <div class="row"><span class="label">Role</span><span class="value">Operator / host workstation</span></div>
+  </div>
+  <div class="env-box">
+    <h4>💻 Target Machine (System Under Restoration)</h4>
+    <div class="row"><span class="label">Device</span><span class="value">MacBook Pro 16" Late 2019</span></div>
+    <div class="row"><span class="label">Chip</span><span class="value">Intel Core (x86_64)</span></div>
+    <div class="row"><span class="label">Security</span><span class="value">Apple T2 chip</span></div>
+    <div class="row"><span class="label">Storage</span><span class="value">500.3 GB NVMe SSD</span></div>
+    <div class="row"><span class="label">Connection</span><span class="value">Thunderbolt 3 → Mac mini</span></div>
+    <div class="row"><span class="label">Boot mode</span><span class="value">Target Disk Mode (hold T)</span></div>
+  </div>
+</div>
+
+<table>
+  <tr><th>Tool / Service</th><th>Purpose</th></tr>
+  <tr><td>Claude AI Terminal Service</td><td>Primary operator interface — all commands issued and monitored</td></tr>
+  <tr><td>diskutil</td><td>Disk identification, erasure, partition management</td></tr>
+  <tr><td>createinstallmedia</td><td>Write bootable macOS installer to target disk</td></tr>
+  <tr><td>softwareupdate</td><td>Download macOS Sequoia 15.7.7 full installer</td></tr>
+  <tr><td>osascript / Terminal</td><td>Interactive sudo command execution</td></tr>
+  <tr><td>gh CLI + git</td><td>Push automation scripts to GitHub</td></tr>
+</table>
+
+<!-- PROBLEM STATEMENT -->
+<h2>2. Problem Statement</h2>
+
+<h3>2.1 The SSV Seal Failure</h3>
+<p>Starting with macOS Big Sur (11.0), Apple introduced the <strong>Signed System Volume (SSV)</strong> — a read-only,
+cryptographically sealed copy of the macOS system volume. At boot, the T2 chip verifies the seal by computing a hash
+tree over every file in the System volume. If any file differs from the sealed state, the Mac refuses to boot.</p>
+<p>The MacBook Pro's SSV seal was broken. Common causes include:</p>
+<table>
+  <tr><th>Cause</th><th>Description</th></tr>
+  <tr><td>Failed macOS upgrade</td><td>Interrupted update leaves system in partially-written, unsealed state</td></tr>
+  <tr><td>System file modification</td><td>Third-party tools (kernel extensions, tweaks) modified sealed files</td></tr>
+  <tr><td>Firmware update failure</td><td>T2 firmware update interrupted, leaving inconsistent state</td></tr>
+  <tr><td>Storage corruption</td><td>NVMe errors caused hash mismatches in system volume</td></tr>
+</table>
+
+<h3>2.2 Why Standard Recovery Failed</h3>
+<div class="alert alert-warning">
+<strong>Cmd+R (macOS Recovery):</strong> The T2 chip validates the local recovery partition before loading it. A broken
+seal prevented the Recovery environment from initializing — black screen / spinning globe at startup.
+</div>
+<div class="alert alert-warning">
+<strong>Option+Cmd+R (Internet Recovery):</strong> Not explicitly tested in this engagement. On T2 Macs, Apple's servers
+perform chip validation before serving the recovery image. Given the confirmed seal failure and Cmd+R non-functionality,
+Internet Recovery was assessed as likely non-viable and an external restore was initiated directly.
+</div>
+
+<h3>2.3 Why <code>startosinstall --volume</code> Failed</h3>
+<p>The standard command-line install tool was attempted on the Mac mini targeting the MBP's disk. It consistently
+printed usage text and exited with code 1 — despite <code>--volume</code> being a valid flag (confirmed via
+<code>strings</code> binary analysis).</p>
+<p>Root cause: Apple Silicon Macs use a different security architecture (SPSB/LocalPolicy). The
+<code>startosinstall</code> runtime validates the target environment and refuses cross-architecture installs from
+Apple Silicon to Intel external disks. Additionally, <code>--eraseinstall</code> and <code>--volume</code> are
+mutually exclusive and cannot be combined.</p>
+
+<!-- SOLUTION -->
+<h2>3. Solution Design</h2>
+<p>The solution bypassed <code>startosinstall</code> entirely in favor of Apple's <code>createinstallmedia</code>
+tool, which has no architecture restriction and operates at the disk level rather than through the macOS security layer.</p>
+
+<div class="alert alert-info">
+<strong>Key Insight — HFS+ Requirement:</strong> <code>createinstallmedia</code> rejects APFS volumes:
+<em>"APFS disks may not be used as bootable install media."</em> The target disk must be erased as
+HFS+ (Mac OS Extended, Journaled) before the tool will proceed. This is a critical, under-documented requirement.
+</div>
+
+<p><strong>Disk Strategy:</strong> Rather than using the entire 500 GB as an installer (leaving no room for macOS to
+install onto), the disk was split after writing the installer:</p>
+
+<div class="disk-diagram">
+  <div style="margin-bottom:12px; color:#8b949e; font-size:0.85em;">MacBook Pro 2019 Internal SSD — 500.3 GB</div>
+  <div class="disk-bar">
+    <div class="seg-efi" title="EFI 314MB"></div>
+    <div class="seg-installer" title="Installer 22GB"></div>
+    <div class="seg-macos" title="Macintosh HD 477GB"></div>
+  </div>
+  <div class="disk-legend">
+    <span><span class="dot" style="background:#495057"></span> EFI (314 MB)</span>
+    <span><span class="dot" style="background:#0d6efd"></span> Install macOS Sequoia — HFS+ (22 GB) — Bootable installer</span>
+    <span><span class="dot" style="background:#198754"></span> Macintosh HD — APFS (477 GB) — Clean macOS install target</span>
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<h2>4. Operation Timeline</h2>
+
+<div class="timeline">
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 1 — Assessment & Connection</span>
+      <span class="time">18:00 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <p>MacBook Pro booted holding <strong>T</strong> → Target Disk Mode entered (Thunderbolt symbol displayed).
+      Thunderbolt cable connected to Mac mini. Disk enumerated via:</p>
+      <pre>$ diskutil list</pre>
+      <p>MBP identified as <code>/dev/disk6</code> (external, physical, Thunderbolt).
+      Initial state: APFS container with 847 KB volume named <code>MVVJ2LL</code>
+      — this is the MacBook Pro's <strong>model number</strong> (MVVJ2LL/A = MacBook Pro 16-inch 2019, Space Gray),
+      not a serial number. macOS uses this as the default TDM volume name.
+      Note: disk identifier changed to <code>/dev/disk4</code> on subsequent reconnection —
+      normal macOS behavior when re-enumerating Thunderbolt devices.</p>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 2 — macOS Installer Download (~15 GB)</span>
+      <span class="time">18:02 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <p>macOS Sequoia 15.7.7 selected (latest stable, confirmed MBP 2019 support). Download initiated:</p>
+      <pre>$ softwareupdate --fetch-full-installer --full-installer-version 15.7.7
+Installing: 1%...25%...50%...75%...89%...Install finished successfully</pre>
+      <p>Installer placed at: <code>/Applications/Install macOS Sequoia.app</code></p>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 3 — Disk Erasure (APFS → HFS+)</span>
+      <span class="time">18:45 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <p>APFS rejected by createinstallmedia. Disk erased as HFS+:</p>
+      <pre>$ sudo diskutil eraseDisk JHFS+ MyVolume GPT disk6
+Started erase on disk6 → Formatting disk6s2 as Mac OS Extended (Journaled)
+Initialized /dev/rdisk6s2 as a 466 GB case-insensitive HFS Plus volume
+Finished erase on disk6</pre>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 4 — Bootable Installer Creation</span>
+      <span class="time">18:46 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <pre>$ sudo /Applications/Install\ macOS\ Sequoia.app/Contents/Resources/createinstallmedia \
+    --volume /Volumes/MyVolume --nointeraction
+Erasing disk: 0%... 10%... 20%... 30%... 100%
+Copying essential files...
+Copying the macOS RecoveryOS...
+Making disk bootable...
+Copying to disk: 0%... 10%... 20%... 30%... 40%... 50%... 60%... 100%
+Install media now available at "/Volumes/Install macOS Sequoia"</pre>
+      <p>Duration: ~8 minutes. Full 499.8 GB disk used as bootable installer.</p>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 5 — Partition Split (Installer + APFS Target)</span>
+      <span class="time">19:13 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <p>Disk split to create dedicated macOS installation partition:</p>
+      <pre>$ sudo diskutil splitPartition disk4s2 2 \
+    JHFS+ "Install macOS Sequoia" 22g \
+    APFS  "Macintosh HD" 477g
+Unmounting disk → Formatting disk4s2 as HFS+ (22 GB)
+Formatting disk4s3 as APFS → Finished partitioning</pre>
+      <div class="alert alert-warning">
+        <strong>Note:</strong> splitPartition reformats the source partition, erasing installer content.
+        Re-writing the installer to the smaller partition was required (Phase 6).
+      </div>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 6 — Installer Rewrite to 22 GB Partition</span>
+      <span class="time">19:14 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <pre>$ sudo createinstallmedia --volume "/Volumes/Install macOS Sequoia" --nointeraction
+Erasing disk: 0%... 100%
+Copying essential files... Copying the macOS RecoveryOS...
+Making disk bootable... Copying to disk: 0%... 100%
+Install media now available at "/Volumes/Install macOS Sequoia"</pre>
+      <p>Installer uses 17.5 GB of the 22 GB partition (80% capacity). Duration: ~5 minutes.</p>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 7 — Disk Ejection & Cable Disconnect</span>
+      <span class="time">19:25 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <pre>$ diskutil eject disk4
+Disk disk4 ejected</pre>
+      <p>Thunderbolt cable disconnected from Mac mini.</p>
+    </div>
+  </div>
+
+  <div class="timeline-phase">
+    <div class="timeline-phase-header">
+      <span>PHASE 8 — MacBook Pro Boot & Installation</span>
+      <span class="time">19:26 EDT</span>
+    </div>
+    <div class="timeline-phase-body">
+      <p>MacBook Pro powered on holding <strong>Option (⌥)</strong>. Boot picker displayed
+      <em>"Install macOS Sequoia"</em>. Selected → installer UI loaded → target selected:
+      <strong>Macintosh HD</strong> (477 GB APFS partition). macOS Sequoia 15.7.7 installation initiated.</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- SSV SEAL -->
+<h2>5. SSV Seal Restoration</h2>
+<p>The SSV seal is not manually repaired — it is created fresh during every macOS installation.
+When macOS Sequoia installs onto the APFS volume, the installer performs these steps automatically:</p>
+<ol class="seal-steps">
+  <li>Writes the complete macOS system to a new System volume</li>
+  <li>Creates a read-only APFS snapshot of the System volume</li>
+  <li>Computes a cryptographic hash tree over all system files</li>
+  <li>Seals the snapshot with Apple's signing key</li>
+  <li>Records the seal in APFS volume metadata</li>
+  <li>T2 chip validates the seal on every subsequent boot</li>
+</ol>
+<p style="margin-top:14px">To verify seal integrity post-installation:</p>
+<pre style="background:#0d1117;color:#e6edf3;padding:12px 16px;border-radius:6px;font-family:'Courier New',monospace;font-size:0.88em">$ diskutil info / | grep Sealed
+   Sealed: Yes</pre>
+
+<!-- KEY FINDINGS -->
+<h2>6. Key Technical Findings</h2>
+
+<div class="finding">
+  <strong>Finding 1 — Architecture Restriction in startosinstall</strong>
+  <p><code>startosinstall --volume</code> fails silently when run on Apple Silicon targeting an Intel Mac's disk
+  in TDM. The flag exists in the binary (confirmed via <code>strings</code> analysis) but runtime validation rejects
+  cross-architecture installs. The only working alternative from an Apple Silicon host is <code>createinstallmedia</code>.</p>
+</div>
+
+<div class="finding">
+  <strong>Finding 2 — createinstallmedia Requires HFS+</strong>
+  <p><code>createinstallmedia</code> refuses APFS-formatted volumes with the error:
+  <em>"APFS disks may not be used as bootable install media."</em> Any target disk must be erased as
+  JHFS+ (Mac OS Extended, Journaled) first. This applies even to the Intel Mac's internal SSD accessed via TDM.</p>
+</div>
+
+<div class="finding">
+  <strong>Finding 3 — splitPartition Erases Installer Content</strong>
+  <p><code>diskutil splitPartition</code> reformats the source partition, erasing content. The installer
+  must be re-run after splitting. Scripts should treat split + createinstallmedia as a mandatory two-step sequence.</p>
+</div>
+
+<div class="finding">
+  <strong>Finding 4 — T2 Firmware Password Cannot Be Removed via TDM</strong>
+  <p>A T2 firmware password manifests as a lock icon in the boot picker regardless of disk state. The password is
+  stored in the T2 chip's secure enclave — not on the disk — and cannot be removed via Target Disk Mode.
+  Remediation requires Apple Configurator 2 in DFU mode.</p>
+</div>
+
+<!-- SCRIPT -->
+<h2>7. Automation Script</h2>
+<p>The full operation is automated in <strong>macos_restore_tdm.sh</strong>, available in the IT Solutions USA repository:</p>
+<p><a href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/mac-admin/macos_restore_tdm.sh">
+  https://github.com/IT-Solutions-USA/mac-admin/blob/main/mac-admin/macos_restore_tdm.sh</a></p>
+<table>
+  <tr><th>Phase</th><th>Script Action</th></tr>
+  <tr><td>1</td><td>Download macOS installer via softwareupdate (if not present)</td></tr>
+  <tr><td>2</td><td>Validate target disk exists and is external</td></tr>
+  <tr><td>3</td><td>Erase disk as JHFS+ (Mac OS Extended, Journaled)</td></tr>
+  <tr><td>4</td><td>Run createinstallmedia on full disk</td></tr>
+  <tr><td>5</td><td>Split: 22 GB HFS+ installer + 477 GB APFS target</td></tr>
+  <tr><td>6</td><td>Re-run createinstallmedia on smaller partition</td></tr>
+  <tr><td>7</td><td>Eject disk safely</td></tr>
+  <tr><td>8</td><td>Print next-step boot instructions</td></tr>
+</table>
+
+</div><!-- end container -->
+
+<div class="footer">
+  <strong>Ioannis Alexander Konstas</strong>, Founder &amp; Managing Principal &nbsp;|&nbsp; IT Solutions USA &nbsp;|&nbsp;
+  <a href="https://github.com/IT-Solutions-USA/mac-admin">github.com/IT-Solutions-USA/mac-admin</a>
+  &nbsp;|&nbsp; May 29, 2026
+</div>
+
+</body>
+</html>

@@ -1,0 +1,409 @@
+================================================================================
+  TECHNICAL OPERATION REPORT
+  macOS Full System Restore via Target Disk Mode
+  Apple Silicon Host → Intel Mac Target
+================================================================================
+
+  Organization  : IT Solutions USA
+  Prepared by   : Ioannis Alexander Konstas, Founder & Managing Principal — IT Solutions USA
+  Date          : May 29, 2026
+  Classification: Internal Technical Documentation
+  Repository    : https://github.com/IT-Solutions-USA/mac-admin
+
+================================================================================
+  EXECUTIVE SUMMARY
+================================================================================
+
+This report documents a full macOS restoration operation performed on a
+MacBook Pro (Late 2019, Intel, T2 Security Chip) using a Mac mini (M4 Pro,
+Apple Silicon) as the host workstation. The operation was executed entirely
+via command-line interface using Claude AI's Terminal service, leveraging
+direct hardware access through Apple's Thunderbolt Target Disk Mode protocol.
+
+The target MacBook Pro had suffered a broken Signed System Volume (SSV) seal —
+a cryptographic integrity failure introduced in macOS Big Sur that prevented
+the laptop from booting and blocked all standard recovery methods. Standard
+approaches including Cmd+R Recovery and Internet Recovery were non-functional.
+
+The operation was completed successfully, resulting in a bootable macOS
+Sequoia 15.7.7 installer written to the MacBook Pro's internal SSD, ready
+for a fresh installation that would automatically restore a valid SSV seal.
+
+================================================================================
+  1. ENVIRONMENT
+================================================================================
+
+  HOST MACHINE (Operator Workstation)
+  ─────────────────────────────────────────────────────────────────────────────
+  Device        : Apple Mac mini
+  Model ID      : Mac16,11
+  Model Number  : MCX44LL/A
+  Chip          : Apple M4 Pro (Apple Silicon, ARM64)
+  Memory        : 24 GB
+  OS            : macOS Tahoe 26.5 (Build 25F71)
+  Serial        : [REDACTED]
+  Role          : Operator/host workstation running all commands
+
+  TARGET MACHINE (System Under Restoration)
+  ─────────────────────────────────────────────────────────────────────────────
+  Device        : Apple MacBook Pro (Late 2019, 16-inch)
+  Chip          : Intel Core i7/i9 (x86_64)
+  Security Chip : Apple T2 (hardware-based security enclave)
+  Storage       : 500.3 GB NVMe SSD (internal)
+  Connection    : Thunderbolt 3 cable → Mac mini Thunderbolt port
+  Boot mode     : Target Disk Mode (hold T at power-on)
+  Appears as    : /dev/disk6 (external, physical) on host
+
+  TOOLING
+  ─────────────────────────────────────────────────────────────────────────────
+  Interface     : Claude AI Terminal Service (claude CLI)
+  Shell         : zsh / bash via osascript Terminal automation
+  Key tools     : diskutil, createinstallmedia, softwareupdate, git, gh CLI
+  Scripts       : macos_restore_tdm.sh (IT Solutions USA / mac-admin repo)
+
+================================================================================
+  2. PROBLEM STATEMENT
+================================================================================
+
+  2.1 THE SSV SEAL FAILURE
+  ─────────────────────────────────────────────────────────────────────────────
+  Starting with macOS Big Sur (11.0), Apple introduced the Signed System
+  Volume (SSV) — a read-only, cryptographically sealed copy of the macOS
+  system volume. At boot, the T2 chip verifies the seal by computing a hash
+  tree over every file in the System volume. If ANY file differs from the
+  sealed state, the Mac refuses to boot.
+
+  The MacBook Pro's SSV seal was broken. Root causes can include:
+    • Failed or interrupted macOS upgrade
+    • Third-party kernel extension or system modification
+    • Interrupted firmware update
+    • Storage corruption or partial disk failure
+
+  2.2 WHY STANDARD RECOVERY FAILED
+  ─────────────────────────────────────────────────────────────────────────────
+  On T2 Macs with a broken seal, all standard recovery paths fail:
+
+  Cmd+R (macOS Recovery):
+    The T2 chip validates the local recovery partition before loading it.
+    A broken seal can prevent the Recovery environment from initializing,
+    leaving the user at a black screen or spinning globe indefinitely.
+
+  Option+Cmd+R (Internet Recovery):
+    Not explicitly tested in this engagement. On T2 Macs, Apple's servers
+    perform chip validation before serving the recovery image. Given the
+    confirmed seal failure and Cmd+R non-functionality, Internet Recovery
+    was assessed as likely non-viable and an external restore was initiated.
+
+  Result: The MacBook Pro could not be recovered through any on-device
+  mechanism. An external restore was required.
+
+  2.3 WHY startosinstall --volume FAILED
+  ─────────────────────────────────────────────────────────────────────────────
+  The standard macOS command-line install tool (startosinstall) accepts a
+  --volume flag to target a specific disk. However, this consistently
+  failed when executed on the Apple Silicon Mac mini targeting the Intel
+  MacBook Pro disk:
+
+    $ sudo startosinstall --volume /Volumes/MVVJ2LL --agreetolicense
+    [prints usage and exits]
+
+  Investigation (via strings analysis of the binary) confirmed --volume IS
+  a valid flag. The failure was due to a fundamental architectural restriction:
+
+    • Apple Silicon Macs use a different security model (SPSB/LocalPolicy)
+    • startosinstall on Apple Silicon cannot cross-install to Intel targets
+    • The Intel disk's T2 security policy is not accessible from the host
+    • Both --volume alone and --eraseinstall + --volume combinations fail
+      (--eraseinstall and --volume are mutually exclusive by design)
+
+  This is an undocumented but consistent behavior on macOS Sequoia/Tahoe
+  running on Apple Silicon hardware.
+
+================================================================================
+  3. SOLUTION DESIGN
+================================================================================
+
+  The solution bypassed startosinstall entirely in favor of Apple's
+  createinstallmedia tool, which has no architecture restriction and works
+  from any Mac to any target disk regardless of chip generation.
+
+  createinstallmedia writes a complete, Apple-signed, self-contained bootable
+  macOS installer directly to the target disk. Because the installer is
+  Apple-signed firmware, it passes T2 Secure Boot validation and allows the
+  MacBook Pro to boot from its own internal disk.
+
+  DISK STRATEGY:
+  Rather than consuming the entire 500 GB with the installer (which would
+  leave no room for macOS to install onto), the disk was split into two
+  partitions post-createinstallmedia:
+
+    Partition 1: HFS+  "Install macOS Sequoia"  22 GB  — Bootable installer
+    Partition 2: APFS  "Macintosh HD"          477 GB  — Clean install target
+
+  This allows the MacBook Pro to:
+    (a) Boot from the installer partition (hold Option at startup)
+    (b) Install macOS Sequoia to the APFS partition
+    (c) Complete a full fresh install with a valid SSV seal
+
+  KEY INSIGHT — HFS+ REQUIREMENT:
+  createinstallmedia rejects APFS-formatted target volumes:
+    "APFS disks may not be used as bootable install media."
+  The disk must first be erased as HFS+ (Mac OS Extended, Journaled)
+  before createinstallmedia will proceed. This is a critical step that is
+  not documented prominently in Apple's official guidance.
+
+================================================================================
+  4. OPERATION TIMELINE
+================================================================================
+
+  All commands were executed on the Mac mini host via Claude AI Terminal
+  service. Times are EDT (UTC-4).
+
+  ── PHASE 1: ASSESSMENT ────────────────────────────────────────────────────
+
+  18:00  MacBook Pro connected to Mac mini via Thunderbolt cable
+         MBP booted holding T → entered Target Disk Mode
+         Thunderbolt symbol displayed on MBP screen
+
+  18:01  Disk assessment performed on Mac mini:
+           $ diskutil list
+         MBP disk identified as /dev/disk6 (external, physical, Thunderbolt)
+         Initial state: APFS container with 847 KB volume named "MVVJ2LL"
+         (MVVJ2LL = MacBook Pro model number identifier — MVVJ2LL/A = MacBook
+          Pro 16-inch 2019, Space Gray. macOS uses this as the default TDM
+          volume name. NOTE: disk identifier changed to /dev/disk4 on subsequent
+          reconnection — normal macOS behavior when re-enumerating Thunderbolt
+          devices. All Phase 5+ commands reference disk4 accordingly.)
+
+  ── PHASE 2: macOS INSTALLER DOWNLOAD ─────────────────────────────────────
+
+  18:02  Available macOS versions queried:
+           $ softwareupdate --list-full-installers
+         macOS Sequoia 15.7.7 selected (latest stable, confirmed MBP 2019 support)
+
+  18:02  Full installer download initiated (~15 GB):
+           $ softwareupdate --fetch-full-installer --full-installer-version 15.7.7
+         Download progress: 1%...25%...50%...75%...89% — Install finished successfully
+
+  ── PHASE 3: DISK PREPARATION ─────────────────────────────────────────────
+
+  18:45  Disk erased as HFS+ (APFS rejected by createinstallmedia):
+           $ sudo diskutil eraseDisk JHFS+ MyVolume GPT disk6
+         Result: disk6s2 formatted as 466 GB HFS+ "MyVolume"
+
+  ── PHASE 4: BOOTABLE INSTALLER CREATION ──────────────────────────────────
+
+  18:46  createinstallmedia executed targeting the HFS+ volume:
+           $ sudo /Applications/Install\ macOS\ Sequoia.app/Contents/Resources/
+                  createinstallmedia --volume /Volumes/MyVolume --nointeraction
+         Progress:
+           Erasing disk: 0%... 10%... 20%... 30%... 100%
+           Copying essential files...
+           Copying the macOS RecoveryOS...
+           Making disk bootable...
+           Copying to disk: 0%... 10%... 20%... 30%... 40%... 50%... 60%... 100%
+           Install media now available at "/Volumes/Install macOS Sequoia"
+         Duration: ~8 minutes
+         Result: Full 499.8 GB disk used as bootable installer
+
+  ── PHASE 5: PARTITION SPLIT ──────────────────────────────────────────────
+
+  19:13  Disk split to create separate macOS install target partition:
+           $ sudo diskutil splitPartition disk4s2 2 \
+               JHFS+ "Install macOS Sequoia" 22g \
+               APFS  "Macintosh HD" 477g
+         Result:
+           disk4s1: EFI              314.6 MB
+           disk4s2: HFS+  installer   22.0 GB  (empty after split — needs rewrite)
+           disk4s3: APFS  target     477.8 GB  (clean, ready for macOS)
+
+         NOTE: splitPartition reformats the source partition, erasing installer
+         content. Re-writing the installer to the smaller partition was required.
+
+  ── PHASE 6: INSTALLER REWRITE ─────────────────────────────────────────────
+
+  19:14  createinstallmedia re-executed on the 22 GB partition:
+           $ sudo /Applications/Install\ macOS\ Sequoia.app/Contents/Resources/
+                  createinstallmedia --volume "/Volumes/Install macOS Sequoia" \
+                  --nointeraction
+         Verified installer uses 17.5 GB of the 22 GB partition (80% capacity)
+         Duration: ~5 minutes
+
+  ── PHASE 7: DISK EJECTION ─────────────────────────────────────────────────
+
+  19:25  Disk safely ejected from Mac mini:
+           $ diskutil eject disk4
+         Thunderbolt cable disconnected from Mac mini
+
+  ── PHASE 8: TARGET BOOT & INSTALLATION ────────────────────────────────────
+
+  19:26  MacBook Pro powered on holding Option (⌥)
+         Boot picker displayed: "Install macOS Sequoia" (22 GB partition)
+         Selected installer → macOS Sequoia installer UI loaded
+         Target selected: "Macintosh HD" (477 GB APFS partition)
+         Installation initiated → macOS Sequoia 15.7.7 installing
+
+================================================================================
+  5. FINAL DISK LAYOUT
+================================================================================
+
+  /dev/disk4 (MacBook Pro 2019 internal SSD — as seen from Mac mini in TDM)
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  Partition  │  Type  │  Name                  │  Size      │  Purpose   │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │  disk4s1    │  EFI   │  EFI                   │  314.6 MB  │  Firmware  │
+  │  disk4s2    │  HFS+  │  Install macOS Sequoia │  22.0 GB   │  Installer │
+  │  disk4s3    │  APFS  │  Macintosh HD          │  477.8 GB  │  macOS OS  │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  Post-installation, macOS will expand the APFS container (disk4s3) into
+  its standard multi-volume structure:
+    • Macintosh HD        (System — read-only, SSV sealed)
+    • Macintosh HD - Data (User data — writable)
+    • Preboot             (Boot objects)
+    • Recovery            (Local recovery environment)
+    • VM                  (Virtual memory swap)
+
+================================================================================
+  6. SSV SEAL RESTORATION
+================================================================================
+
+  The Signed System Volume seal is NOT manually repaired — it is created
+  fresh during every macOS installation. When macOS Sequoia installs onto
+  the "Macintosh HD" APFS volume, the installer:
+
+    1. Writes the complete macOS system to the System volume
+    2. Creates a read-only APFS snapshot of the System volume
+    3. Computes a cryptographic hash tree over all system files
+    4. Seals the snapshot with Apple's signing key
+    5. Records the seal in the APFS volume metadata
+
+  The T2 chip then validates this seal on every subsequent boot. A fresh
+  installation always produces a valid, verifiable seal — this is why a
+  clean reinstall is the definitive fix for SSV seal corruption.
+
+  To verify seal integrity post-installation:
+    $ diskutil info / | grep Sealed
+    Sealed: Yes
+
+================================================================================
+  7. KEY TECHNICAL FINDINGS & LESSONS
+================================================================================
+
+  FINDING 1 — Architecture Restriction in startosinstall
+  ─────────────────────────────────────────────────────────────────────────────
+  startosinstall --volume fails silently (prints usage, exits 1) when run
+  on Apple Silicon attempting to target an Intel Mac's disk in TDM. This is
+  an undocumented restriction. The binary DOES contain the --volume flag
+  (confirmed via strings analysis) but runtime validation rejects cross-
+  architecture installs. The only working alternative is createinstallmedia.
+
+  FINDING 2 — createinstallmedia Requires HFS+
+  ─────────────────────────────────────────────────────────────────────────────
+  createinstallmedia refuses APFS-formatted volumes:
+    "APFS disks may not be used as bootable install media."
+  Any target disk must be erased as JHFS+ (Mac OS Extended, Journaled)
+  before createinstallmedia will proceed. This applies even when the target
+  is an Intel Mac's internal SSD accessed via TDM.
+
+  FINDING 3 — splitPartition Erases Content
+  ─────────────────────────────────────────────────────────────────────────────
+  diskutil splitPartition reformats the source partition (disk4s2), erasing
+  the installer content that was just written. The installer must be re-run
+  against the smaller post-split partition. Scripts should account for this
+  by treating split and createinstallmedia as a two-step sequence.
+
+  FINDING 4 — Thunderbolt TDM Disk Identity & Identifier Reassignment
+  ─────────────────────────────────────────────────────────────────────────────
+  When an Intel Mac connects in TDM, its default APFS volume name reflects
+  the machine's model number (e.g., "MVVJ2LL" = MacBook Pro 16-inch 2019
+  Space Gray, model MVVJ2LL/A — NOT the serial number). This can be used to
+  confirm correct disk identification before destructive operations.
+  Additionally, macOS may reassign the disk identifier (e.g., disk6 → disk4)
+  between Thunderbolt disconnect/reconnect cycles. Scripts must re-run
+  diskutil list after any reconnection to confirm the current identifier.
+
+  FINDING 5 — T2 Firmware Password Cannot Be Removed via TDM
+  ─────────────────────────────────────────────────────────────────────────────
+  If a T2 firmware password is set on the target Mac, it will manifest as
+  a lock icon in the boot picker regardless of disk state. The firmware
+  password is stored in the T2 chip's secure enclave — not on the disk —
+  and CANNOT be removed or bypassed via Target Disk Mode. Remediation
+  requires Apple Configurator 2 in DFU mode.
+
+================================================================================
+  8. AUTOMATION SCRIPT
+================================================================================
+
+  The operation has been fully automated in:
+    macos_restore_tdm.sh
+    https://github.com/IT-Solutions-USA/mac-admin/blob/main/mac-admin/macos_restore_tdm.sh
+
+  The script performs all phases in sequence with error checking:
+    1. Download macOS installer (if not present)
+    2. Validate target disk exists and is external
+    3. Erase disk as HFS+ (JHFS+)
+    4. Run createinstallmedia
+    5. Split partition (22 GB installer + 477 GB APFS target)
+    6. Re-run createinstallmedia on smaller partition
+    7. Eject disk
+    8. Print next-step instructions
+
+  Configuration variables at the top of the script allow customization of:
+    • INSTALLER_APP   — path to macOS installer
+    • TARGET_DISK     — disk identifier (e.g., disk4, disk6)
+    • INSTALLER_PART_SIZE — installer partition size (default 22g)
+    • MACOS_VERSION   — version to download if installer missing
+
+================================================================================
+  9. PREREQUISITES FOR FUTURE OPERATIONS
+================================================================================
+
+  To replicate this operation, the following are required:
+
+  Hardware:
+    ✓ Any Mac running macOS Monterey 12.0 or later as host
+    ✓ Target Intel Mac with T2 chip (MacBook Pro 2016–2019, etc.)
+    ✓ Thunderbolt 3 or Thunderbolt 4 cable
+
+  Software:
+    ✓ macOS installer app in /Applications (or internet access to download)
+    ✓ sudo privileges on host Mac
+    ✓ Sufficient free disk space (~20 GB) for installer download
+
+  Procedure:
+    1. Boot target Mac holding T → confirm Thunderbolt symbol on screen
+    2. Connect Thunderbolt cable to host Mac
+    3. Confirm disk appears: diskutil list | grep external
+    4. Set TARGET_DISK in macos_restore_tdm.sh
+    5. Run: sudo ./macos_restore_tdm.sh
+    6. When complete: disconnect cable, boot target holding Option (⌥)
+    7. Select "Install macOS [version]" → install to "Macintosh HD"
+
+================================================================================
+  10. REFERENCES
+================================================================================
+
+  Apple Documentation:
+    • Use createinstallmedia to create a bootable macOS installer
+      https://support.apple.com/en-us/101578
+    • About macOS Recovery
+      https://support.apple.com/en-us/102654
+    • Use Target Disk Mode to share files between two Mac computers
+      https://support.apple.com/en-us/102739
+    • About the T2 Security Chip
+      https://support.apple.com/en-us/103265
+
+  Technical References:
+    • APFS Reference — Sealed Volumes (Apple Developer Documentation)
+    • RFC 4941 — Privacy Extensions for Stateless Address Autoconfiguration in IPv6
+    • Apple Platform Security Guide — Signed System Volume
+
+  Repository:
+    • IT Solutions USA / mac-admin
+      https://github.com/IT-Solutions-USA/mac-admin
+
+================================================================================
+  END OF REPORT
+  IT Solutions USA | https://github.com/IT-Solutions-USA
+================================================================================

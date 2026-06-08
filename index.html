@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IT Solutions USA — Mac Admin Scripts & Reports</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; }
+  header { background: linear-gradient(135deg, #0d1117 0%, #1a2332 100%); padding: 60px 40px; text-align: center; border-bottom: 1px solid #21262d; }
+  header h1 { font-size: 2.4em; color: #58a6ff; margin-bottom: 10px; }
+  header p { color: #8b949e; font-size: 1.05em; }
+  .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+  .section-title { color: #58a6ff; font-size: 1.2em; border-bottom: 1px solid #21262d; padding-bottom: 10px; margin: 40px 0 20px 0; }
+  .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; text-decoration: none; color: inherit; display: block; transition: border-color 0.2s; }
+  .card:hover { border-color: #58a6ff; }
+  .card h3 { color: #e6edf3; font-size: 0.95em; margin-bottom: 6px; }
+  .card p { color: #8b949e; font-size: 0.85em; line-height: 1.5; }
+  .card .tag { display: inline-block; background: #21262d; color: #58a6ff; font-size: 0.75em; padding: 2px 8px; border-radius: 4px; margin-top: 10px; }
+  .card .tag.red { color: #f85149; }
+  .card .tag.green { color: #3fb950; }
+  .card .tag.orange { color: #e3b341; }
+  footer { text-align: center; padding: 30px; color: #8b949e; font-size: 0.85em; border-top: 1px solid #21262d; margin-top: 60px; }
+  footer a { color: #58a6ff; text-decoration: none; }
+  @media (max-width: 600px) { .card-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>IT Solutions USA</h1>
+  <p>Mac Administration · Security · Networking · Infrastructure</p>
+</header>
+
+<div class="container">
+
+  <div class="section-title">📄 Technical Reports</div>
+  <div class="card-grid">
+    <a class="card" href="reports/macos_restore_tdm_report.html">
+      <h3>macOS Restore via Target Disk Mode</h3>
+      <p>Full technical report of MacBook Pro 2019 (T2/Intel) restoration from Apple Silicon Mac mini via Thunderbolt TDM. Covers SSV seal failure, startosinstall limitations, and createinstallmedia workflow.</p>
+      <span class="tag">HTML Report</span>
+      <span class="tag green">May 2026</span>
+    </a>
+    <a class="card" href="reports/macos_restore_tdm_report.txt">
+      <h3>macOS Restore Report (Plain Text)</h3>
+      <p>Plain text version of the TDM restore technical report. Includes full operation timeline, commands, findings, and references.</p>
+      <span class="tag orange">TXT</span>
+    </a>
+  </div>
+
+  <div class="section-title">🍎 Mac Administration Scripts</div>
+  <div class="card-grid">
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/mac-admin/macos_restore_tdm.sh">
+      <h3>macos_restore_tdm.sh</h3>
+      <p>Automated macOS restore via Target Disk Mode. Downloads installer, formats disk as HFS+, runs createinstallmedia, splits partitions, re-writes installer. Apple Silicon → Intel.</p>
+      <span class="tag">Bash</span>
+    </a>
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/mac-admin/check_partitions.sh">
+      <h3>check_partitions.sh</h3>
+      <p>Clean overview of all disks, APFS containers, partitions, and external drives. First-step utility before any disk operation.</p>
+      <span class="tag">Bash</span>
+    </a>
+  </div>
+
+  <div class="section-title">🔒 Security Scripts</div>
+  <div class="card-grid">
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/security/mac_audit.sh">
+      <h3>mac_audit.sh</h3>
+      <p>Full forensic & vulnerability assessment — 13 sections covering SIP, Gatekeeper, FileVault, firewall, processes, persistence, file system, logs, malware IOCs. Outputs HTML + TXT report.</p>
+      <span class="tag red">Security</span>
+    </a>
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/security/network_audit.sh">
+      <h3>network_audit.sh</h3>
+      <p>Network forensics — IPv6 MAC leak, open ports, active connections, DNS, routing, firewall rules, VPN interfaces, suspicious traffic. 10-section audit with HTML report.</p>
+      <span class="tag red">Security</span>
+    </a>
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/security/ipv6_privacy_fix.sh">
+      <h3>ipv6_privacy_fix.sh</h3>
+      <p>Detects and fixes IPv6 EUI-64 MAC address embedding. Enables full privacy extensions (use_tempaddr=2), persists to sysctl.conf, regenerates IPv6 addresses.</p>
+      <span class="tag red">Security</span>
+    </a>
+    <a class="card" href="https://github.com/IT-Solutions-USA/mac-admin/blob/main/security/generate_pdf_reports.sh">
+      <h3>generate_pdf_reports.sh</h3>
+      <p>Converts all HTML audit reports in ~/audit_reports/ to PDF using built-in macOS tools (cupsfilter → Safari fallback).</p>
+      <span class="tag">Bash</span>
+    </a>
+  </div>
+
+</div>
+
+<footer>
+  <strong>Ioannis Alexander Konstas</strong> &nbsp;·&nbsp; IT Solutions USA &nbsp;·&nbsp;
+  <a href="https://github.com/IT-Solutions-USA">github.com/IT-Solutions-USA</a> &nbsp;·&nbsp;
+  <a href="https://github.com/ikonstas70">@ikonstas70</a>
+</footer>
+
+</body>
+</html>

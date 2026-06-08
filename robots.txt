@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://it-solutions-usa.github.io/mac-admin/sitemap.xml
